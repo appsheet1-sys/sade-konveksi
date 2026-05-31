@@ -1,0 +1,6 @@
+{
+  "name": "Katalog & Pemesanan Konveksi Mandiri",
+  "description": "Website katalog digital terintegrasi untuk pemesanan pakaian konveksi kustom, lengkap dengan dasbor pelacakan status pesanan real-time, manajemen inventaris stok, muli-size pricing, dan laporan analisis keuangan bisnis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
