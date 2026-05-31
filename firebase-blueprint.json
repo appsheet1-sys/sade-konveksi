@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Products manufactured and customized by Gauls Tailors",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string", "enum": ["Baju", "Almamater", "Jaket", "Kaos", "Kemeja", "Lainnya"] },
+        "basePrice": { "type": "number" },
+        "image": { "type": "string" },
+        "sizes": { "type": "array" },
+        "colors": { "type": "array" },
+        "stock": { "type": "number" }
+      },
+      "required": ["id", "name", "category", "basePrice", "image", "sizes", "colors", "stock"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Client orders for customizable clothing lines",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "transferDestination": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "processing", "shipped", "done"] },
+        "date": { "type": "string" },
+        "waNotified": { "type": "boolean" },
+        "emailNotified": { "type": "boolean" },
+        "trackingNumber": { "type": "string" }
+      },
+      "required": ["id", "invoiceNumber", "customerName", "customerPhone", "customerEmail", "items", "totalAmount", "paymentMethod", "transferDestination", "status", "date", "waNotified", "emailNotified"]
+    },
+    "ManualSale": {
+      "title": "ManualSale",
+      "description": "Offline or cash transaction history logged manually by an admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "qty": { "type": "number" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "date", "category", "amount", "qty", "description"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Store settings, contact info, payment configurations, and social links",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "headerImage": { "type": "string" },
+        "shopeeUrl": { "type": "string" },
+        "tiktokUrl": { "type": "string" },
+        "tokopediaUrl": { "type": "string" },
+        "instagramUrl": { "type": "string" },
+        "whatsappNumber": { "type": "string" },
+        "paymentBanks": { "type": "array" }
+      },
+      "required": ["storeName", "headerImage", "whatsappNumber", "paymentBanks"]
+    }
+  },
+  "firestore": {
+    "/products": {
+      "schema": "Product",
+      "description": "Collection of all customizable garments"
+    },
+    "/orders": {
+      "schema": "Order",
+      "description": "Direct orders submitted by customers"
+    },
+    "/manualSales": {
+      "schema": "ManualSale",
+      "description": "Manual offline transactions logged in the admin panel"
+    },
+    "/settings": {
+      "schema": "AppSettings",
+      "description": "Global layout and config variables for the konveksi store"
+    }
+  }
+}

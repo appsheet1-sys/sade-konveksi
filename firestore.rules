@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default catch-all: DENY ALL
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable primitive helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation helper for Products
+    function isValidProduct(p) {
+      return p.id is string && p.id.size() <= 128
+          && p.name is string && p.name.size() <= 128
+          && p.description is string && p.description.size() <= 2048
+          && p.category is string && p.category.size() <= 64
+          && p.basePrice is number && p.basePrice >= 0
+          && p.image is string && p.image.size() <= 1024
+          && p.stock is number && p.stock >= 0;
+    }
+
+    // Validation helper for Orders
+    function isValidOrder(o) {
+      return o.id is string && o.id.size() <= 128
+          && o.invoiceNumber is string && o.invoiceNumber.size() <= 128
+          && o.customerName is string && o.customerName.size() <= 128
+          && o.customerPhone is string && o.customerPhone.size() <= 32
+          && o.customerEmail is string && o.customerEmail.size() <= 128
+          && o.totalAmount is number && o.totalAmount >= 0
+          && o.paymentMethod is string && o.paymentMethod.size() <= 64
+          && o.transferDestination is string && o.transferDestination.size() <= 128
+          && o.status is string && o.status.size() <= 32
+          && o.date is string && o.date.size() <= 32
+          && o.waNotified is bool
+          && o.emailNotified is bool;
+    }
+
+    // Validation helper for Manual Sales
+    function isValidManualSale(s) {
+      return s.id is string && s.id.size() <= 128
+          && s.category is string && s.category.size() <= 128
+          && s.amount is number && s.amount >= 0
+          && s.qty is number && s.qty >= 0
+          && s.description is string && s.description.size() <= 2048
+          && s.date is string && s.date.size() <= 32;
+    }
+
+    // Validation helper for Settings
+    function isValidSettings(g) {
+      return g.storeName is string && g.storeName.size() <= 128
+          && g.headerImage is string && g.headerImage.size() <= 1024
+          && g.whatsappNumber is string && g.whatsappNumber.size() <= 32
+          && g.shopeeUrl is string && g.shopeeUrl.size() <= 1024
+          && g.tiktokUrl is string && g.tiktokUrl.size() <= 1024
+          && g.tokopediaUrl is string && g.tokopediaUrl.size() <= 1024
+          && g.instagramUrl is string && g.instagramUrl.size() <= 1024;
+    }
+
+    // 1. Products Collection Rules
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isValidId(productId) && isValidProduct(incoming());
+      allow update: if isValidId(productId) && isValidProduct(incoming());
+      allow delete: if isValidId(productId);
+    }
+
+    // 2. Orders Collection Rules
+    match /orders/{orderId} {
+      allow read: if true;
+      allow create: if isValidId(orderId) && isValidOrder(incoming());
+      allow update: if isValidId(orderId) && isValidOrder(incoming());
+      allow delete: if isValidId(orderId);
+    }
+
+    // 3. Manual Sales Collection Rules
+    match /manualSales/{saleId} {
+      allow read: if true;
+      allow create: if isValidId(saleId) && isValidManualSale(incoming());
+      allow update: if isValidId(saleId) && isValidManualSale(incoming());
+      allow delete: if isValidId(saleId);
+    }
+
+    // 4. App Settings Rules
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow create: if isValidId(settingsId) && isValidSettings(incoming());
+      allow update: if isValidId(settingsId) && isValidSettings(incoming());
+      allow delete: if isValidId(settingsId);
+    }
+  }
+}

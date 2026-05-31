@@ -129,7 +129,7 @@ export const INITIAL_PORTFOLIO: PortfolioItem[] = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  storeName: 'Kresna Garment & Konveksi Mandiri',
+  storeName: 'Gauls Garment & Konveksi Mandiri',
   headerImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=1200',
   shopeeUrl: 'https://shopee.co.id',
   tiktokUrl: 'https://tiktok.com',
@@ -137,9 +137,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   instagramUrl: 'https://instagram.com',
   whatsappNumber: '6281234567890',
   paymentBanks: [
-    { name: 'Bank BCA', accountNumber: '8839012389', holder: 'PT Kresna Garment Mandiri' },
-    { name: 'Bank Mandiri', accountNumber: '1370020192831', holder: 'Indra Kresna Mandiri' },
-    { name: 'Bank BRI', accountNumber: '002301982736152', holder: 'PT Kresna Garment Mandiri' }
+    { name: 'Bank BCA', accountNumber: '8839012389', holder: 'PT Karya Garment Mandiri' },
+    { name: 'Bank Mandiri', accountNumber: '1370020192831', holder: 'Indra Karya Mandiri' },
+    { name: 'Bank BRI', accountNumber: '002301982736152', holder: 'PT Karya Garment Mandiri' }
   ]
 };
 
@@ -163,7 +163,7 @@ export const INITIAL_ORDERS: Order[] = [
     ],
     totalAmount: ((15 * 135000) + (20 * 135000) + (10 * 140000)), // 6,125,000
     paymentMethod: 'Transfer Bank (Bank BCA)',
-    transferDestination: 'Bank BCA - 8839012389 a/n PT Kresna Garment Mandiri',
+    transferDestination: 'Bank BCA - 8839012389 a/n PT Karya Garment Mandiri',
     status: 'processing',
     date: '2026-05-12',
     waNotified: true,
@@ -189,7 +189,7 @@ export const INITIAL_ORDERS: Order[] = [
     ],
     totalAmount: ((10 * 65000) + (30 * 65000) + (40 * 68000) + (20 * 72000)), // 6,760,000
     paymentMethod: 'Transfer Bank (Bank Mandiri)',
-    transferDestination: 'Bank Mandiri - 1370020192831 a/n Indra Kresna Mandiri',
+    transferDestination: 'Bank Mandiri - 1370020192831 a/n Indra Karya Mandiri',
     status: 'done',
     date: '2026-05-10',
     waNotified: true,

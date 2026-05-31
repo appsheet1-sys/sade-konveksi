@@ -10,6 +10,8 @@ import { Product, Order, OrderItem, PortfolioItem, AppSettings, ManualSale, Orde
 import DirectChat from './components/DirectChat';
 import CustomChart from './components/CustomChart';
 import ManualSalesForm from './components/ManualSalesForm';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { 
   ShoppingBag, 
   Trash2, 
@@ -41,11 +43,13 @@ import {
   Building,
   Sparkles,
   ShoppingBag as CartIcon,
-  RotateCcw
+  RotateCcw,
+  Lock,
+  LogOut
 } from 'lucide-react';
 
 export default function App() {
-  // --- Persistent States (backed up to localStorage) ---
+  // --- Persistent States (backed up to modern Cloud Firestore & local fallback) ---
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('konveksi_products');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
@@ -71,26 +75,94 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_MANUAL_SALES;
   });
 
-  // Keep state sync'd with localStorage
-  useEffect(() => {
-    localStorage.setItem('konveksi_products', JSON.stringify(products));
-  }, [products]);
+  const [dbLoading, setDbLoading] = useState(true);
 
+  // Firestore Synchronization Engine
+  useEffect(() => {
+    // 1. Sync Settings
+    const settingsRef = doc(db, 'settings', 'global');
+    const unsubSettings = onSnapshot(settingsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data() as AppSettings;
+        setSettings(data);
+        localStorage.setItem('konveksi_settings', JSON.stringify(data));
+      } else {
+        setDoc(settingsRef, DEFAULT_SETTINGS).catch(err => handleFirestoreError(err, OperationType.WRITE, 'settings/global'));
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'settings/global'));
+
+    // 2. Sync Products
+    const productsColRef = collection(db, 'products');
+    const unsubProducts = onSnapshot(productsColRef, (snapshot) => {
+      if (!snapshot.empty) {
+        const loadedProducts: Product[] = [];
+        snapshot.forEach(doc => {
+          loadedProducts.push(doc.data() as Product);
+        });
+        setProducts(loadedProducts);
+        localStorage.setItem('konveksi_products', JSON.stringify(loadedProducts));
+      } else {
+        // Seed first-time products to Firestore database instance
+        INITIAL_PRODUCTS.forEach(p => {
+          setDoc(doc(db, 'products', p.id), p).catch(err => handleFirestoreError(err, OperationType.WRITE, `products/${p.id}`));
+        });
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'products'));
+
+    // 3. Sync Orders
+    const ordersColRef = collection(db, 'orders');
+    const unsubOrders = onSnapshot(ordersColRef, (snapshot) => {
+      if (!snapshot.empty) {
+        const loadedOrders: Order[] = [];
+        snapshot.forEach(doc => {
+          loadedOrders.push(doc.data() as Order);
+        });
+        loadedOrders.sort((a, b) => b.id.localeCompare(a.id));
+        setOrders(loadedOrders);
+        localStorage.setItem('konveksi_orders', JSON.stringify(loadedOrders));
+      } else {
+        // Seed first-time orders to Firestore database instance
+        INITIAL_ORDERS.forEach(o => {
+          setDoc(doc(db, 'orders', o.id), o).catch(err => handleFirestoreError(err, OperationType.WRITE, `orders/${o.id}`));
+        });
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'orders'));
+
+    // 4. Sync Manual Sales
+    const manualSalesColRef = collection(db, 'manualSales');
+    const unsubManualSales = onSnapshot(manualSalesColRef, (snapshot) => {
+      if (!snapshot.empty) {
+        const loadedSales: ManualSale[] = [];
+        snapshot.forEach(doc => {
+          loadedSales.push(doc.data() as ManualSale);
+        });
+        loadedSales.sort((a, b) => b.id.localeCompare(a.id));
+        setManualSales(loadedSales);
+        localStorage.setItem('konveksi_manual_sales', JSON.stringify(loadedSales));
+      } else {
+        // Seed first-time manual sales to Firestore database instance
+        INITIAL_MANUAL_SALES.forEach(ms => {
+          setDoc(doc(db, 'manualSales', ms.id), ms).catch(err => handleFirestoreError(err, OperationType.WRITE, `manualSales/${ms.id}`));
+        });
+      }
+      setDbLoading(false);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'manualSales');
+      setDbLoading(false);
+    });
+
+    return () => {
+      unsubSettings();
+      unsubProducts();
+      unsubOrders();
+      unsubManualSales();
+    };
+  }, []);
+
+  // Sync static portfolio state to localStorage
   useEffect(() => {
     localStorage.setItem('konveksi_portfolio', JSON.stringify(portfolio));
   }, [portfolio]);
-
-  useEffect(() => {
-    localStorage.setItem('konveksi_settings', JSON.stringify(settings));
-  }, [settings]);
-
-  useEffect(() => {
-    localStorage.setItem('konveksi_orders', JSON.stringify(orders));
-  }, [orders]);
-
-  useEffect(() => {
-    localStorage.setItem('konveksi_manual_sales', JSON.stringify(manualSales));
-  }, [manualSales]);
 
   // --- Applet Navigation ---
   // Tabs: 'shop' (Katalog), 'portfolio' (Galeri Karya), 'tracking' (Lacak Status), 'admin' (Dashboard Admin)
@@ -125,6 +197,12 @@ export default function App() {
   const [searchedOrder, setSearchedOrder] = useState<Order | null>(null);
 
   // --- Admin States ---
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
+    return sessionStorage.getItem('is_admin_logged_in') === 'true';
+  });
+  const [loginError, setLoginError] = useState('');
   const [adminTab, setAdminTab] = useState<'dashboard' | 'transactions' | 'products' | 'settings'>('dashboard');
   
   // Admin Editing Product Dialog
@@ -160,21 +238,57 @@ export default function App() {
   // Admin Manual Sales Report Filters
   const [timeframeFilter, setTimeframeFilter] = useState<'daily' | 'monthly' | 'yearly'>('monthly');
 
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminUsername === 'admin' && adminPassword === 'admin2026') {
+      setIsAdminLoggedIn(true);
+      sessionStorage.setItem('is_admin_logged_in', 'true');
+      setLoginError('');
+    } else {
+      setLoginError('Username atau kata sandi admin salah!');
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdminLoggedIn(false);
+    sessionStorage.removeItem('is_admin_logged_in');
+    setAdminUsername('');
+    setAdminPassword('');
+  };
+
   // --- Quick Reset helper ---
-  const handleResetData = () => {
+  const handleResetData = async () => {
     if (window.confirm('Apakah Anda yakin ingin mengembalikan seluruh data ke pengaturan awal pabrik? Semua pesanan baru akan terhapus.')) {
-      localStorage.removeItem('konveksi_products');
-      localStorage.removeItem('konveksi_portfolio');
-      localStorage.removeItem('konveksi_settings');
-      localStorage.removeItem('konveksi_orders');
-      localStorage.removeItem('konveksi_manual_sales');
-      setProducts(INITIAL_PRODUCTS);
-      setPortfolio(INITIAL_PORTFOLIO);
-      setSettings(DEFAULT_SETTINGS);
-      setOrders(INITIAL_ORDERS);
-      setManualSales(INITIAL_MANUAL_SALES);
-      alert('Data didefault-kan kembali!');
-      window.location.reload();
+      try {
+        localStorage.removeItem('konveksi_products');
+        localStorage.removeItem('konveksi_portfolio');
+        localStorage.removeItem('konveksi_settings');
+        localStorage.removeItem('konveksi_orders');
+        localStorage.removeItem('konveksi_manual_sales');
+
+        // Delete settings
+        await deleteDoc(doc(db, 'settings', 'global'));
+        
+        // Delete all products
+        const prodSnap = await getDocs(collection(db, 'products'));
+        const prodPromises = prodSnap.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(prodPromises);
+
+        // Delete all orders
+        const ordSnap = await getDocs(collection(db, 'orders'));
+        const ordPromises = ordSnap.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(ordPromises);
+
+        // Delete all manual sales
+        const msSnap = await getDocs(collection(db, 'manualSales'));
+        const msPromises = msSnap.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(msPromises);
+
+        alert('Data berhasil didefault-kan kembali! Halaman akan dimuat ulang.');
+        window.location.reload();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, 'settings/global');
+      }
     }
   };
 
@@ -255,7 +369,7 @@ export default function App() {
   };
 
   // --- Checkout Processing ---
-  const handleCheckoutSubmit = (e: React.FormEvent) => {
+  const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cart.length === 0) return;
 
@@ -286,23 +400,25 @@ export default function App() {
       emailNotified: true
     };
 
-    // Fast subtract simulation from inventory stock
-    setProducts(prevProds => {
-      return prevProds.map(prod => {
-        const itemInCart = cart.find(c => c.productId === prod.id);
-        if (itemInCart) {
-          let orderedQty = 0;
-          Object.keys(itemInCart.qtyPerSize).forEach(sz => {
-            orderedQty += ((itemInCart.qtyPerSize[sz] as number) || 0);
-          });
-          return { ...prod, stock: Math.max(0, prod.stock - orderedQty) };
-        }
-        return prod;
-      });
-    });
+    try {
+      // 1. Save new Order to Firestore
+      await setDoc(doc(db, 'orders', newOrder.id), newOrder);
 
-    // Save order
-    setOrders(prev => [newOrder, ...prev]);
+      // 2. Subtract inventory stock for product items in cart on Firestore
+      for (const item of cart) {
+        const prod = products.find(p => p.id === item.productId);
+        if (prod) {
+          let orderedQty = 0;
+          Object.keys(item.qtyPerSize).forEach(sz => {
+            orderedQty += ((item.qtyPerSize[sz] as number) || 0);
+          });
+          const updatedProd = { ...prod, stock: Math.max(0, prod.stock - orderedQty) };
+          await setDoc(doc(db, 'products', prod.id), updatedProd);
+        }
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `orders/${newOrder.id}`);
+    }
 
     // Format WA and Email notifications text to showcase integrations
     const waText = `WhatsApp Otomatis Terkirim ke +${newOrder.customerPhone}:\n"Halo ${newOrder.customerName}, terima kasih atas pesanan konveksi Anda! Faktur ${newOrder.invoiceNumber} sebesar Rp ${newOrder.totalAmount.toLocaleString('id-ID')} telah direkam. Silakan transfer ke ${newOrder.transferDestination}."`;
@@ -329,18 +445,27 @@ export default function App() {
   };
 
   // --- Admin Add Manual offline Sale ---
-  const handleAddManualSale = (newSaleData: Omit<ManualSale, 'id'>) => {
+  const handleAddManualSale = async (newSaleData: Omit<ManualSale, 'id'>) => {
     const sale: ManualSale = {
       id: 'ms-' + Date.now(),
       ...newSaleData
     };
-    setManualSales(prev => [sale, ...prev]);
+    try {
+      await setDoc(doc(db, 'manualSales', sale.id), sale);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `manualSales/${sale.id}`);
+    }
   };
 
   // --- Admin Modify Store Settings ---
-  const handleUpdateSettings = (e: React.FormEvent) => {
+  const handleUpdateSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    alert('Konfigurasi pengaturan utama toko dan gambar header kustom berhasil disimpan secara real-time!');
+    try {
+      await setDoc(doc(db, 'settings', 'global'), settings);
+      alert('Konfigurasi pengaturan utama toko dan gambar header kustom berhasil disimpan secara real-time!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/global');
+    }
   };
 
   // --- Edit custom size prices and details in Admin Panel ---
@@ -380,7 +505,7 @@ export default function App() {
     });
   };
 
-  const handleSaveProductForm = (e: React.FormEvent) => {
+  const handleSaveProductForm = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const parsedColors = productForm.colors
@@ -400,41 +525,51 @@ export default function App() {
       basePrice: productForm.sizes[0]?.price || productForm.basePrice
     };
 
-    if (isAddingNewProduct) {
-      setProducts(prev => [...prev, targetProduct]);
-      setIsAddingNewProduct(false);
-    } else {
-      setProducts(prev => prev.map(p => p.id === targetProduct.id ? targetProduct : p));
-      setAdminProductEditing(null);
+    try {
+      await setDoc(doc(db, 'products', targetProduct.id), targetProduct);
+      if (isAddingNewProduct) {
+        setIsAddingNewProduct(false);
+      } else {
+        setAdminProductEditing(null);
+      }
+      alert('Data produk konveksi dan kustom harga setiap ukuran berhasil disimpan!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `products/${targetProduct.id}`);
     }
-    alert('Data produk konveksi dan kustom harga setiap ukuran berhasil disimpan!');
   };
 
   // --- Delete Product ---
-  const handleDeleteProduct = (id: string) => {
+  const handleDeleteProduct = async (id: string) => {
     if (window.confirm('Yakin ingin menghapus produk ini dari katalog?')) {
-      setProducts(prev => prev.filter(p => p.id !== id));
+      try {
+        await deleteDoc(doc(db, 'products', id));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
+      }
     }
   };
 
   // --- Admin update order status ---
-  const handleChangeOrderStatus = (orderId: string, nextStatus: OrderStatus) => {
+  const handleChangeOrderStatus = async (orderId: string, nextStatus: OrderStatus) => {
     let trackingPrompt: string | undefined = undefined;
     if (nextStatus === 'shipped') {
       const code = prompt('Masukkan Nomor Resi Pengiriman Paket:', `TRK-${new Date().getFullYear()}0001`);
       if (code) trackingPrompt = code;
     }
 
-    setOrders(prev => prev.map(ord => {
-      if (ord.id === orderId) {
-        return {
-          ...ord,
-          status: nextStatus,
-          trackingNumber: trackingPrompt || ord.trackingNumber
-        };
+    const ord = orders.find(o => o.id === orderId);
+    if (ord) {
+      const updatedOrder: Order = {
+        ...ord,
+        status: nextStatus,
+        trackingNumber: trackingPrompt || ord.trackingNumber || ''
+      };
+      try {
+        await setDoc(doc(db, 'orders', orderId), updatedOrder);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `orders/${orderId}`);
       }
-      return ord;
-    }));
+    }
   };
 
   // --- Download reports to CSV (Excel readable format) ---
@@ -565,6 +700,18 @@ export default function App() {
                         p.description.toLowerCase().includes(searchQuery.toLowerCase());
     return matchCategory && matchSearch;
   });
+
+  if (dbLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center font-sans">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+          <h2 className="text-lg font-semibold text-teal-400">Menghubungkan ke Database...</h2>
+          <p className="text-xs text-slate-400 font-mono">Sinkronisasi data real-time via Cloud Firestore</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col selection:bg-teal-600 selection:text-white">
@@ -1170,13 +1317,69 @@ export default function App() {
         {/* ======================================================== */}
         {activeTab === 'admin' && (
           <div className="space-y-8 animate-in fade-in duration-300">
-            
-            {/* Header / Config Bar */}
+            {!isAdminLoggedIn ? (
+              <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden my-12 animate-in slide-in-from-bottom duration-300">
+                {/* Header aspect */}
+                <div className="bg-slate-900 px-6 py-8 text-center relative border-b border-slate-800">
+                  <div className="mx-auto w-12 h-12 bg-teal-500/10 border border-teal-500/20 text-teal-400 rounded-full flex items-center justify-center mb-3">
+                    <Lock className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <h4 className="font-sans font-black text-white text-base tracking-widest uppercase">OTENTIKASI ADMINISTRATOR</h4>
+                  <p className="text-slate-400 text-xs mt-1 font-sans">Harap masuk untuk mengelola konveksi</p>
+                </div>
+
+                <form onSubmit={handleAdminLogin} className="p-6 space-y-4">
+                  {loginError && (
+                    <div className="bg-rose-50 border border-rose-100 text-rose-600 text-xs px-4 py-2.5 rounded-lg font-semibold flex items-center space-x-2 animate-pulse">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{loginError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Username Admin</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Masukkan username admin"
+                      value={adminUsername}
+                      onChange={(e) => setAdminUsername(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-teal-500 transition font-mono text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Password Admin</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Masukkan kata sandi admin"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-teal-500 transition font-mono text-slate-800"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-teal-600 hover:bg-slate-900 text-white font-bold py-2.5 px-6 rounded-xl text-xs uppercase tracking-wider transition duration-300 shadow-md hover:shadow-lg mt-2 cursor-pointer"
+                  >
+                    Masuk ke Dashboard
+                  </button>
+
+                  <div className="text-center pt-2 text-[10px] text-slate-400">
+                    Sistem Keamanan Utama • 2026
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <>
+                {/* Header / Config Bar */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900 text-white p-6 rounded-2xl shadow-md border border-slate-800">
               <div>
                 <h3 className="text-lg font-bold text-teal-400 flex items-center">
                   <TrendingUp className="w-5 h-5 mr-2 animate-bounce text-teal-400" />
-                  Kresna Enterprise Admin Panel
+                  Aplikasi Web Admin Panel
                 </h3>
                 <p className="text-xs text-slate-300 mt-1">
                   Pengelolaan stok barang, kustom harga, otentikasi pesanan, pelaporan keuangan, dan pergantian header website.
@@ -1203,6 +1406,16 @@ export default function App() {
                     {adm.label}
                   </button>
                 ))}
+
+                <button
+                  type="button"
+                  onClick={handleAdminLogout}
+                  className="px-3 py-1.5 rounded-lg font-semibold tracking-wider uppercase transition bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white flex items-center space-x-1 ml-auto cursor-pointer"
+                  title="Logout dari Sesi Admin"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Keluar</span>
+                </button>
               </div>
             </div>
 
@@ -1686,6 +1899,8 @@ export default function App() {
               </div>
             )}
 
+              </>
+            )}
           </div>
         )}
 
@@ -2300,7 +2515,7 @@ export default function App() {
               <li>
                 <a href={settings.instagramUrl} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-teal-400 flex items-center space-x-1">
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Instagram @KresnaConvection</span>
+                  <span>Instagram Official</span>
                 </a>
               </li>
             </ul>
